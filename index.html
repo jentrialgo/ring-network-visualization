@@ -21,6 +21,8 @@
             background: #fff;
             border: 1px solid #e0e0e0;
             border-radius: 5px;
+            flex-wrap: wrap; /* Allows controls to wrap on smaller screens */
+            justify-content: center; /* centers the items when wrapped */
         }
         #controls label {
             margin-right: 5px;
@@ -32,6 +34,10 @@
             border-radius: 3px;
             font-size: 14px;
             background: #fff;
+        }
+        /* Make input fields narrower */
+        #controls input[type="number"] {
+            width: 50px; /* Adjust width as needed */
         }
         canvas {
             border: 1px solid #e0e0e0;
@@ -46,35 +52,41 @@
             border: 1px solid #e0e0e0;
             border-radius: 5px;
         }
+        /* add space between divs, in the controls */
+        #controls > div {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
     </style>
 </head>
 <body>
     <div id="controls">
         <div>
-            <label for="nNodes">N: </label>
+            <label for="nNodes">N (number of nodes): </label>
             <input type="number" id="nNodes" min="3" value="8">
         </div>
         <div>
-            <label for="degree">n: </label>
+            <label for="degree">n (degree): </label>
             <input type="number" id="degree" min="2" value="2">
         </div>
         <div>
-            <label for="step">s: </label>
+            <label for="step">s (step): </label>
             <input type="number" id="step" min="1" value="1">
         </div>
         <div>
-            <label for="highlightMode">Modo: </label>
+            <label for="highlightMode">Mode: </label>
             <select id="highlightMode">
-                <option value="neighbors">Vecinos</option>
-                <option value="distances">Distancias</option>
+                <option value="neighbors">Neighbors</option>
+                <option value="distances">Distances</option>
             </select>
         </div>
     </div>
     
     <canvas id="networkCanvas" width="600" height="600"></canvas>
     <div id="metrics">
-        <p>Diámetro: <span id="diameter">?</span></p>
-        <p>Diámetro Promedio: <span id="avgDiameter">?</span></p>
+        <p>Diameter: <span id="diameter">?</span></p>
+        <p>Mean diameter: <span id="avgDiameter">?</span></p>
     </div>
 
     <script>
