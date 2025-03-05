@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ring Network</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 40px;
+            background: #f8f9fa;
+            color: #333;
+        }
+        #controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            padding: 10px 20px;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+        }
+        #controls label {
+            margin-right: 5px;
+            font-size: 14px;
+        }
+        #controls input, #controls select {
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-size: 14px;
+            background: #fff;
+        }
+        canvas {
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            background: #fff;
+        }
+        #metrics {
+            margin-top: 20px;
+            font-size: 14px;
+            padding: 10px 20px;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <div>
+            <label for="nNodes">N: </label>
+            <input type="number" id="nNodes" min="3" value="8">
+        </div>
+        <div>
+            <label for="degree">n: </label>
+            <input type="number" id="degree" min="2" value="2">
+        </div>
+        <div>
+            <label for="step">s: </label>
+            <input type="number" id="step" min="1" value="1">
+        </div>
+        <div>
+            <label for="highlightMode">Modo: </label>
+            <select id="highlightMode">
+                <option value="neighbors">Vecinos</option>
+                <option value="distances">Distancias</option>
+            </select>
+        </div>
+    </div>
+    
+    <canvas id="networkCanvas" width="600" height="600"></canvas>
+    <div id="metrics">
+        <p>Diámetro: <span id="diameter">?</span></p>
+        <p>Diámetro Promedio: <span id="avgDiameter">?</span></p>
+    </div>
+
+    <script>
+        let nodes = [];
+        let adjList = [];
+        let highlightedNode = -1;
+
+        function drawNetwork() {
+            const N = parseInt(document.getElementById('nNodes').value);
+            const n = parseInt(document.getElementById('degree').value);
+            const s = parseInt(document.getElementById('step').value);
+            const highlightMode = document.getElementById('highlightMode').value;
+
+            const canvas = document.getElementById('networkCanvas');
+            const ctx = canvas.getContext('2d');
+            const radius = 250;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (N < 3 || n < 2 || s < 1 || s >= N || isNaN(N) || isNaN(n) || isNaN(s) || n > N) {
+                document.getElementById('diameter').textContent = '?';
+                document.getElementById('avgDiameter').textContent = '?';
+                nodes = [];
+                adjList = [];
+                return;
+            }
+
+            nodes = [];
+            for (let i = 0; i < N; i++) {
+                const angle = -Math.PI / 2 + (2 * Math.PI * i) / N;
+                const x = centerX + radius * Math.cos(angle);
+                const y = centerY + radius * Math.sin(angle);
+                nodes.push({ x, y, angle, index: i });
+            }
+
+            adjList = Array.from({ length: N }, () => new Set());
+            for (let i = 0; i < N; i++) {
+                adjList[i].add((i + 1) % N);
+                adjList[i].add((i - 1 + N) % N);
+            }
+            if (n > 2 && s > 1) {
+                const extraNeeded = n - 2;
+                for (let i = 0; i < N; i += 2) {
+                    const target = (i + s) % N;
+                    if (target !== (i + 1) % N && target !== (i - 1 + N) % N && !adjList[i].has(target) && adjList[i].size < n && adjList[target].size < n) {
+                        adjList[i].add(target);
+                        adjList[target].add(i);
+                    }
+                }
+                for (let i = 0; i < N; i++) {
+                    if (adjList[i].size < n) {
+                        const target = (i + N - s) % N;
+                        if (target !== (i + 1) % N && target !== (i - 1 + N) % N && !adjList[i].has(target) && adjList[target].size < n) {
+                            adjList[i].add(target);
+                            adjList[target].add(i);
+                        }
+                    }
+                }
+            }
+
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#666';
+            for (let i = 0; i < N; i++) {
+                const startAngle = nodes[i].angle;
+                const endAngle = nodes[(i + 1) % N].angle;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, startAngle, endAngle, false);
+                ctx.stroke();
+            }
+            if (n > 2 && s > 1) {
+                ctx.strokeStyle = '#999';
+                for (let i = 0; i < N; i++) {
+                    for (const target of adjList[i]) {
+                        if (target !== (i + 1) % N && target !== (i - 1 + N) % N) {
+                            ctx.beginPath();
+                            ctx.moveTo(nodes[i].x, nodes[i].y);
+                            ctx.lineTo(nodes[target].x, nodes[target].y);
+                            ctx.stroke();
+                        }
+                    }
+                }
+            }
+
+            ctx.shadowBlur = 0; // Sin sombras para minimalismo
+            drawNodes(ctx, highlightMode);
+
+            const distances = calculateDistances(adjList, N);
+            const diameter = Math.max(...distances.map(row => Math.max(...row)));
+            const avgDiameter = distances.flat().reduce((sum, dist) => sum + dist, 0) / (N * (N - 1));
+            document.getElementById('diameter').textContent = diameter;
+            document.getElementById('avgDiameter').textContent = avgDiameter.toFixed(2);
+        }
+
+        function drawNodes(ctx, highlightMode) {
+            let distances = [];
+            let maxDistanceNode = -1;
+            if (highlightedNode !== -1 && highlightMode === 'distances') {
+                distances = bfsDistances(highlightedNode);
+                maxDistanceNode = distances.indexOf(Math.max(...distances));
+            }
+
+            for (let i = 0; i < nodes.length; i++) {
+                const node = nodes[i];
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, highlightedNode === i ? 6 : 4, 0, 2 * Math.PI);
+                ctx.fillStyle = (highlightMode === 'neighbors' && (i === highlightedNode || (highlightedNode !== -1 && adjList[highlightedNode].has(i)))) ||
+                               (highlightMode === 'distances' && highlightedNode !== -1 && (i === highlightedNode || i === maxDistanceNode)) ? '#007bff' : '#333';
+                ctx.fill();
+
+                ctx.fillStyle = '#555';
+                if (highlightMode === 'neighbors' && (i === highlightedNode || (highlightedNode !== -1 && adjList[highlightedNode].has(i)))) {
+                    ctx.fillText('n', node.x + 8, node.y - 8);
+                    ctx.fillText(node.index, node.x + 13, node.y - 4);
+                } else if (highlightMode === 'distances' && highlightedNode !== -1) {
+                    ctx.font = '14px "Helvetica Neue"';
+                    ctx.fillText('n', node.x + 8, node.y - 8);
+                    ctx.font = '12px "Helvetica Neue"';
+                    ctx.fillText(node.index, node.x + 13, node.y - 4);
+                    ctx.font = '14px "Helvetica Neue"';
+                    ctx.fillText(`(${distances[i]})`, node.x + 18, node.y - 8);
+                }
+            }
+        }
+
+        function bfsDistances(start) {
+            const distances = Array(nodes.length).fill(Infinity);
+            distances[start] = 0;
+            const queue = [start];
+            const visited = new Set([start]);
+
+            while (queue.length > 0) {
+                const node = queue.shift();
+                for (const neighbor of adjList[node]) {
+                    if (!visited.has(neighbor)) {
+                        visited.add(neighbor);
+                        distances[neighbor] = distances[node] + 1;
+                        queue.push(neighbor);
+                    }
+                }
+            }
+            return distances;
+        }
+
+        function calculateDistances(adjList, N) {
+            const distances = Array.from({ length: N }, () => Array(N).fill(Infinity));
+            for (let start = 0; start < N; start++) {
+                distances[start][start] = 0;
+                const queue = [start];
+                const visited = new Set([start]);
+                
+                while (queue.length > 0) {
+                    const node = queue.shift();
+                    for (const neighbor of adjList[node]) {
+                        if (!visited.has(neighbor)) {
+                            visited.add(neighbor);
+                            distances[start][neighbor] = distances[start][node] + 1;
+                            queue.push(neighbor);
+                        }
+                    }
+                }
+            }
+            return distances;
+        }
+
+        const canvas = document.getElementById('networkCanvas');
+        canvas.addEventListener('mousemove', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+
+            let newHighlightedNode = -1;
+            for (let i = 0; i < nodes.length; i++) {
+                const node = nodes[i];
+                const distance = Math.sqrt((mouseX - node.x) ** 2 + (mouseY - node.y) ** 2);
+                if (distance <= 6) {
+                    newHighlightedNode = i;
+                    break;
+                }
+            }
+
+            if (newHighlightedNode !== highlightedNode) {
+                highlightedNode = newHighlightedNode;
+                drawNetwork();
+            }
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            highlightedNode = -1;
+            drawNetwork();
+        });
+
+        const inputs = document.querySelectorAll('input, select');
+        inputs.forEach(input => {
+            input.addEventListener('input', drawNetwork);
+        });
+
+        window.onload = drawNetwork;
+    </script>
+</body>
+</html>
