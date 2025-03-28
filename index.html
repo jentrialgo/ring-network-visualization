@@ -2,290 +2,641 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Ring Network</title>
+    <title>Improved Ring Network</title>
     <style>
+        :root {
+            --background-color: #f8f9fa;
+            --foreground-color: #fff;
+            --border-color: #e0e0e0;
+            --text-color: #333;
+            --label-color: #555;
+            --control-border-color: #ddd;
+            --node-color: #333;
+            --highlight-color: #007bff; /* Blue for highlight */
+            --edge-ring-color: #666;
+            --edge-shortcut-color: #aaa; /* Lighter grey for shortcuts */
+            --error-color: #dc3545; /* Red for errors */
+            --success-color: #28a745; /* Green for success */
+            --font-family: 'Helvetica Neue', Arial, sans-serif;
+        }
+
         body {
-            font-family: 'Helvetica Neue', Arial, sans-serif;
+            font-family: var(--font-family);
             display: flex;
             flex-direction: column;
             align-items: center;
-            margin: 40px;
-            background: #f8f9fa;
-            color: #333;
+            margin: 20px; /* Reduced margin */
+            background: var(--background-color);
+            color: var(--text-color);
+        }
+        #controls, #metrics, #statusMessage {
+            margin-bottom: 15px; /* Consistent spacing */
+            padding: 10px 20px;
+            background: var(--foreground-color);
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            width: calc(100% - 40px); /* Limit width */
+            max-width: 600px; /* Match canvas width */
+            box-sizing: border-box; /* Include padding/border in width */
         }
         #controls {
-            margin-bottom: 20px;
             display: flex;
-            gap: 20px;
-            padding: 10px 20px;
-            background: #fff;
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-            flex-wrap: wrap; /* Allows controls to wrap on smaller screens */
-            justify-content: center; /* centers the items when wrapped */
+            gap: 15px; /* Adjusted gap */
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
         }
-        #controls label {
-            margin-right: 5px;
-            font-size: 14px;
-        }
-        #controls input, #controls select {
-            padding: 5px;
-            border: 1px solid #ddd;
-            border-radius: 3px;
-            font-size: 14px;
-            background: #fff;
-        }
-        /* Make input fields narrower */
-        #controls input[type="number"] {
-            width: 50px; /* Adjust width as needed */
-        }
-        canvas {
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-            background: #fff;
-        }
-        #metrics {
-            margin-top: 20px;
-            font-size: 14px;
-            padding: 10px 20px;
-            background: #fff;
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-        }
-        /* add space between divs, in the controls */
         #controls > div {
             display: flex;
             align-items: center;
             gap: 5px;
+        }
+        #controls label {
+            margin-right: 5px;
+            font-size: 14px;
+            color: var(--label-color);
+        }
+        #controls input, #controls select {
+            padding: 5px 8px;
+            border: 1px solid var(--control-border-color);
+            border-radius: 3px;
+            font-size: 14px;
+            background: var(--foreground-color);
+        }
+        #controls input[type="number"] {
+            width: 55px; /* Slightly wider */
+        }
+        #statusMessage {
+            font-size: 14px;
+            text-align: center;
+            min-height: 1.5em; /* Prevent layout shift */
+            padding: 8px 15px;
+        }
+        #statusMessage.error {
+            color: var(--error-color);
+            border-color: var(--error-color);
+            background-color: #f8d7da;
+        }
+        #statusMessage.success {
+            color: #155724; /* Darker green for text */
+            border-color: var(--success-color);
+            background-color: #d4edda;
+        }
+        canvas {
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            background: var(--foreground-color);
+            display: block; /* Remove extra space below canvas */
+        }
+        #metrics {
+            font-size: 14px;
+        }
+        #metrics p {
+            margin: 5px 0;
         }
     </style>
 </head>
 <body>
     <div id="controls">
         <div>
-            <label for="nNodes">N (number of nodes): </label>
+            <label for="nNodes">N:</label>
             <input type="number" id="nNodes" min="3" value="8">
         </div>
         <div>
-            <label for="degree">n (degree): </label>
+            <label for="degree">n (degree):</label>
             <input type="number" id="degree" min="2" value="2">
         </div>
         <div>
-            <label for="step">s (step): </label>
+            <label for="step">s (step):</label>
             <input type="number" id="step" min="1" value="1">
         </div>
         <div>
-            <label for="highlightMode">Mode: </label>
+            <label for="highlightMode">Mode:</label>
             <select id="highlightMode">
                 <option value="neighbors">Neighbors</option>
                 <option value="distances">Distances</option>
             </select>
         </div>
     </div>
-    
-    <canvas id="networkCanvas" width="600" height="600"></canvas>
+
+    <div id="statusMessage">Enter network parameters.</div>
+
+    <canvas id="networkCanvas"></canvas> <!-- Dimensions set in JS -->
+
     <div id="metrics">
         <p>Diameter: <span id="diameter">?</span></p>
-        <p>Mean diameter: <span id="avgDiameter">?</span></p>
+        <p>Mean Path Length: <span id="avgDiameter">?</span></p>
     </div>
 
-    <script>
-        let nodes = [];
-        let adjList = [];
-        let highlightedNode = -1;
+    <script defer> // Use defer to ensure DOM is ready before script runs
+        // --- Constants ---
+        const CANVAS_WIDTH = 600;
+        const CANVAS_HEIGHT = 600;
+        const NODE_RADIUS = 4;
+        const HIGHLIGHTED_NODE_RADIUS = 7;
+        const HOVER_HIT_RADIUS = 8;
+        const GRAPH_RADIUS = 250;
 
-        function drawNetwork() {
-            const N = parseInt(document.getElementById('nNodes').value);
-            const n = parseInt(document.getElementById('degree').value);
-            const s = parseInt(document.getElementById('step').value);
-            const highlightMode = document.getElementById('highlightMode').value;
+        // --- Variables to hold computed CSS colors ---
+        let NODE_COLOR, HIGHLIGHT_COLOR, EDGE_RING_COLOR, EDGE_SHORTCUT_COLOR, LABEL_COLOR;
 
-            const canvas = document.getElementById('networkCanvas');
-            const ctx = canvas.getContext('2d');
-            const radius = 250;
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2;
+        // --- State ---
+        let networkState = {
+            // ... (keep existing state properties) ...
+            nodes: [],
+            adjList: [],
+            allDistances: [],
+            diameter: '?',
+            avgDiameter: '?',
+            highlightedNode: -1,
+            N: 0,
+            n: 0,
+            s: 0,
+            highlightMode: 'neighbors',
+            isValid: false,
+            status: { type: 'info', message: 'Enter network parameters.' }
+        };
 
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        let canvas, ctx;
+        let isDrawing = false;
+        let drawRafId = null;
+        let drawDynamicRafId = null;
 
-            if (N < 3 || n < 2 || s < 1 || s >= N || isNaN(N) || isNaN(n) || isNaN(s) || n > N) {
-                document.getElementById('diameter').textContent = '?';
-                document.getElementById('avgDiameter').textContent = '?';
-                nodes = [];
-                adjList = [];
-                return;
-            }
+        // --- Initialization ---
+        function initialize() {
+            canvas = document.getElementById('networkCanvas');
+            ctx = canvas.getContext('2d');
+            canvas.width = CANVAS_WIDTH;
+            canvas.height = CANVAS_HEIGHT;
 
-            nodes = [];
-            for (let i = 0; i < N; i++) {
-                const angle = -Math.PI / 2 + (2 * Math.PI * i) / N;
-                const x = centerX + radius * Math.cos(angle);
-                const y = centerY + radius * Math.sin(angle);
-                nodes.push({ x, y, angle, index: i });
-            }
+            // Read CSS variable values AFTER DOM is ready
+            readCssColorVariables();
 
-            adjList = Array.from({ length: N }, () => new Set());
-            for (let i = 0; i < N; i++) {
-                adjList[i].add((i + 1) % N);
-                adjList[i].add((i - 1 + N) % N);
-            }
-            if (n > 2 && s > 1) {
-                const extraNeeded = n - 2;
-                for (let i = 0; i < N; i += 2) {
-                    const target = (i + s) % N;
-                    if (target !== (i + 1) % N && target !== (i - 1 + N) % N && !adjList[i].has(target) && adjList[i].size < n && adjList[target].size < n) {
-                        adjList[i].add(target);
-                        adjList[target].add(i);
-                    }
-                }
-                for (let i = 0; i < N; i++) {
-                    if (adjList[i].size < n) {
-                        const target = (i + N - s) % N;
-                        if (target !== (i + 1) % N && target !== (i - 1 + N) % N && !adjList[i].has(target) && adjList[target].size < n) {
-                            adjList[i].add(target);
-                            adjList[target].add(i);
-                        }
-                    }
-                }
-            }
-
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = '#666';
-            for (let i = 0; i < N; i++) {
-                const startAngle = nodes[i].angle;
-                const endAngle = nodes[(i + 1) % N].angle;
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, radius, startAngle, endAngle, false);
-                ctx.stroke();
-            }
-            if (n > 2 && s > 1) {
-                ctx.strokeStyle = '#999';
-                for (let i = 0; i < N; i++) {
-                    for (const target of adjList[i]) {
-                        if (target !== (i + 1) % N && target !== (i - 1 + N) % N) {
-                            ctx.beginPath();
-                            ctx.moveTo(nodes[i].x, nodes[i].y);
-                            ctx.lineTo(nodes[target].x, nodes[target].y);
-                            ctx.stroke();
-                        }
-                    }
-                }
-            }
-
-            ctx.shadowBlur = 0; // Sin sombras para minimalismo
-            drawNodes(ctx, highlightMode);
-
-            const distances = calculateDistances(adjList, N);
-            const diameter = Math.max(...distances.map(row => Math.max(...row)));
-            const avgDiameter = distances.flat().reduce((sum, dist) => sum + dist, 0) / (N * (N - 1));
-            document.getElementById('diameter').textContent = diameter;
-            document.getElementById('avgDiameter').textContent = avgDiameter.toFixed(2);
+            setupEventListeners();
+            handleConfigChange(); // Initial calculation and draw
         }
 
-        function drawNodes(ctx, highlightMode) {
-            let distances = [];
-            let maxDistanceNode = -1;
-            if (highlightedNode !== -1 && highlightMode === 'distances') {
-                distances = bfsDistances(highlightedNode);
-                maxDistanceNode = distances.indexOf(Math.max(...distances));
-            }
+        // --- Function to read CSS Color Variables ---
+        function readCssColorVariables() {
+             const computedStyle = getComputedStyle(document.documentElement);
+             NODE_COLOR = computedStyle.getPropertyValue('--node-color').trim();
+             HIGHLIGHT_COLOR = computedStyle.getPropertyValue('--highlight-color').trim();
+             EDGE_RING_COLOR = computedStyle.getPropertyValue('--edge-ring-color').trim();
+             EDGE_SHORTCUT_COLOR = computedStyle.getPropertyValue('--edge-shortcut-color').trim();
+             LABEL_COLOR = computedStyle.getPropertyValue('--label-color').trim();
 
-            for (let i = 0; i < nodes.length; i++) {
-                const node = nodes[i];
-                ctx.beginPath();
-                ctx.arc(node.x, node.y, highlightedNode === i ? 6 : 4, 0, 2 * Math.PI);
-                ctx.fillStyle = (highlightMode === 'neighbors' && (i === highlightedNode || (highlightedNode !== -1 && adjList[highlightedNode].has(i)))) ||
-                               (highlightMode === 'distances' && highlightedNode !== -1 && (i === highlightedNode || i === maxDistanceNode)) ? '#007bff' : '#333';
-                ctx.fill();
+             // Basic fallback if CSS variables somehow fail
+             NODE_COLOR = NODE_COLOR || '#333';
+             HIGHLIGHT_COLOR = HIGHLIGHT_COLOR || '#007bff';
+             EDGE_RING_COLOR = EDGE_RING_COLOR || '#666';
+             EDGE_SHORTCUT_COLOR = EDGE_SHORTCUT_COLOR || '#aaa';
+             LABEL_COLOR = LABEL_COLOR || '#555';
+        }
 
-                ctx.fillStyle = '#555';
-                if (highlightMode === 'neighbors' && (i === highlightedNode || (highlightedNode !== -1 && adjList[highlightedNode].has(i)))) {
-                    ctx.fillText('n', node.x + 8, node.y - 8);
-                    ctx.fillText(node.index, node.x + 13, node.y - 4);
-                } else if (highlightMode === 'distances' && highlightedNode !== -1) {
-                    ctx.font = '14px "Helvetica Neue"';
-                    ctx.fillText('n', node.x + 8, node.y - 8);
-                    ctx.font = '12px "Helvetica Neue"';
-                    ctx.fillText(node.index, node.x + 13, node.y - 4);
-                    ctx.font = '14px "Helvetica Neue"';
-                    ctx.fillText(`(${distances[i]})`, node.x + 18, node.y - 8);
-                }
+
+        // --- Event Handling ---
+        // ... (setupEventListeners, handleConfigChange, handleMouseMove, handleMouseLeave - no changes needed here) ...
+         function setupEventListeners() {
+            const inputs = document.querySelectorAll('#controls input, #controls select');
+            inputs.forEach(input => {
+                const eventType = input.type === 'number' ? 'change' : 'input';
+                input.addEventListener(eventType, handleConfigChange);
+                 input.addEventListener('input', () => requestRedrawIfNeeded(input));
+            });
+
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mouseleave', handleMouseLeave);
+        }
+
+         function requestRedrawIfNeeded(inputElement) {
+             if (inputElement.type === 'number') {
+                 const value = parseInt(inputElement.value);
+                 const min = parseInt(inputElement.min);
+                 if (!isNaN(value) && value >= min) {
+                    handleConfigChange();
+                 } else if (inputElement.value === '') {
+                    clearVisualizationAndMetrics();
+                    updateStatusMessage({type:'error', message: 'Input cannot be empty.'});
+                 }
+             } else { // For select dropdown
+                handleConfigChange();
+             }
+        }
+
+        function handleConfigChange() {
+            readInputs();
+            validateInputs();
+            updateStatusMessage();
+
+            if (networkState.isValid) {
+                calculateNetworkStructure();
+                calculateNetworkMetrics();
+                updateMetricsDisplay();
+                requestDraw();
+            } else {
+                clearVisualizationAndMetrics();
             }
         }
 
-        function bfsDistances(start) {
-            const distances = Array(nodes.length).fill(Infinity);
-            distances[start] = 0;
-            const queue = [start];
-            const visited = new Set([start]);
+        function handleMouseMove(event) {
+            if (!networkState.isValid || isDrawing) return;
 
-            while (queue.length > 0) {
-                const node = queue.shift();
-                for (const neighbor of adjList[node]) {
-                    if (!visited.has(neighbor)) {
-                        visited.add(neighbor);
-                        distances[neighbor] = distances[node] + 1;
-                        queue.push(neighbor);
-                    }
-                }
-            }
-            return distances;
-        }
-
-        function calculateDistances(adjList, N) {
-            const distances = Array.from({ length: N }, () => Array(N).fill(Infinity));
-            for (let start = 0; start < N; start++) {
-                distances[start][start] = 0;
-                const queue = [start];
-                const visited = new Set([start]);
-                
-                while (queue.length > 0) {
-                    const node = queue.shift();
-                    for (const neighbor of adjList[node]) {
-                        if (!visited.has(neighbor)) {
-                            visited.add(neighbor);
-                            distances[start][neighbor] = distances[start][node] + 1;
-                            queue.push(neighbor);
-                        }
-                    }
-                }
-            }
-            return distances;
-        }
-
-        const canvas = document.getElementById('networkCanvas');
-        canvas.addEventListener('mousemove', (event) => {
             const rect = canvas.getBoundingClientRect();
             const mouseX = event.clientX - rect.left;
             const mouseY = event.clientY - rect.top;
 
             let newHighlightedNode = -1;
-            for (let i = 0; i < nodes.length; i++) {
-                const node = nodes[i];
-                const distance = Math.sqrt((mouseX - node.x) ** 2 + (mouseY - node.y) ** 2);
-                if (distance <= 6) {
+            let minDistSq = HOVER_HIT_RADIUS * HOVER_HIT_RADIUS;
+
+            for (let i = 0; i < networkState.nodes.length; i++) {
+                const node = networkState.nodes[i];
+                const dx = mouseX - node.x;
+                const dy = mouseY - node.y;
+                const distSq = dx * dx + dy * dy;
+
+                if (distSq <= minDistSq) {
+                    minDistSq = distSq;
                     newHighlightedNode = i;
-                    break;
                 }
             }
 
-            if (newHighlightedNode !== highlightedNode) {
-                highlightedNode = newHighlightedNode;
-                drawNetwork();
+            if (newHighlightedNode !== networkState.highlightedNode) {
+                networkState.highlightedNode = newHighlightedNode;
+                requestDrawDynamic();
             }
-        });
+        }
 
-        canvas.addEventListener('mouseleave', () => {
-            highlightedNode = -1;
-            drawNetwork();
-        });
+        function handleMouseLeave() {
+            if (networkState.highlightedNode !== -1) {
+                networkState.highlightedNode = -1;
+                if (networkState.isValid) {
+                    requestDrawDynamic();
+                }
+            }
+        }
 
-        const inputs = document.querySelectorAll('input, select');
-        inputs.forEach(input => {
-            input.addEventListener('input', drawNetwork);
-        });
 
-        window.onload = drawNetwork;
+        // --- Input and Validation ---
+        // ... (readInputs, validateInputs - no changes needed) ...
+        function readInputs() {
+            networkState.N = parseInt(document.getElementById('nNodes').value);
+            networkState.n = parseInt(document.getElementById('degree').value);
+            networkState.s = parseInt(document.getElementById('step').value);
+            networkState.highlightMode = document.getElementById('highlightMode').value;
+        }
+
+        function validateInputs() {
+            const { N, n, s } = networkState;
+            let status = { type: 'success', message: `Network: N=${N}, n=${n}, s=${s}` };
+
+            if (isNaN(N) || isNaN(n) || isNaN(s)) {
+                status = { type: 'error', message: 'Inputs must be numbers.' };
+            } else if (N < 3) {
+                status = { type: 'error', message: 'N (number of nodes) must be at least 3.' };
+            } else if (n < 2) {
+                status = { type: 'error', message: 'n (degree) must be at least 2.' };
+            } else if (s < 1) {
+                status = { type: 'error', message: 's (step) must be at least 1.' };
+            } else if (n >= N) {
+                status = { type: 'error', message: 'n (degree) must be less than N.' };
+            } else if (s >= N) {
+                 status = { type: 'error', message: 's (step) must be less than N.' };
+            }
+
+            networkState.isValid = status.type === 'success';
+            networkState.status = status;
+        }
+
+
+        // --- Calculation Functions ---
+        // ... (calculateNetworkStructure, calculateNetworkMetrics, calculateAllDistances - no changes needed) ...
+        function calculateNetworkStructure() {
+            const { N, n, s } = networkState;
+            const centerX = CANVAS_WIDTH / 2;
+            const centerY = CANVAS_HEIGHT / 2;
+
+            networkState.nodes = [];
+            for (let i = 0; i < N; i++) {
+                const angle = -Math.PI / 2 + (2 * Math.PI * i) / N;
+                const x = centerX + GRAPH_RADIUS * Math.cos(angle);
+                const y = centerY + GRAPH_RADIUS * Math.sin(angle);
+                networkState.nodes.push({ x, y, angle, index: i });
+            }
+
+            const adj = Array.from({ length: N }, () => new Set());
+            for (let i = 0; i < N; i++) {
+                adj[i].add((i + 1) % N);
+                adj[i].add((i - 1 + N) % N);
+            }
+
+            if (n > 2) {
+                for (let i = 0; i < N; i++) {
+                    if (adj[i].size < n) {
+                        const target = (i + s) % N;
+                         if (target !== i && !adj[i].has(target)) {
+                            if (adj[target].size < n) {
+                                adj[i].add(target);
+                                adj[target].add(i);
+                            }
+                         }
+                    }
+                }
+                 for (let i = 0; i < N; i++) {
+                     if (adj[i].size < n) {
+                         const target = (i - s + N) % N;
+                          if (target !== i && !adj[i].has(target)) {
+                             if (adj[target].size < n) {
+                                adj[i].add(target);
+                                adj[target].add(i);
+                             }
+                         }
+                     }
+                 }
+            }
+            networkState.adjList = adj;
+        }
+
+        function calculateNetworkMetrics() {
+            const { N, adjList } = networkState;
+            if (!adjList || N === 0) {
+                networkState.allDistances = [];
+                networkState.diameter = '?';
+                networkState.avgDiameter = '?';
+                return;
+            };
+
+            networkState.allDistances = calculateAllDistances(adjList, N);
+
+            let maxDist = 0;
+            let totalDist = 0;
+            let reachablePairs = 0;
+            let isConnected = true;
+
+            for (let i = 0; i < N; i++) {
+                for (let j = i + 1; j < N; j++) {
+                    const dist = networkState.allDistances[i][j];
+                    if (dist === Infinity) {
+                        isConnected = false;
+                    } else {
+                        if (dist > maxDist) {
+                            maxDist = dist;
+                        }
+                        totalDist += dist;
+                        reachablePairs++;
+                    }
+                }
+            }
+
+            if (!isConnected) {
+                networkState.diameter = 'Infinity (Disconnected)';
+                 networkState.avgDiameter = reachablePairs > 0 ? (totalDist / reachablePairs).toFixed(2) + ' (Reachable)' : 'N/A';
+            } else {
+                networkState.diameter = maxDist;
+                const totalPairs = N * (N - 1) / 2;
+                networkState.avgDiameter = totalPairs > 0 ? (totalDist / totalPairs).toFixed(2) : 0;
+            }
+        }
+
+        function calculateAllDistances(adjList, N) {
+            const distances = Array.from({ length: N }, () => Array(N).fill(Infinity));
+            for (let startNode = 0; startNode < N; startNode++) {
+                distances[startNode][startNode] = 0;
+                const queue = [startNode];
+                let head = 0;
+
+                while (head < queue.length) {
+                    const u = queue[head++];
+                    const currentDist = distances[startNode][u];
+
+                    if (adjList[u]) {
+                        for (const v of adjList[u]) {
+                            if (distances[startNode][v] === Infinity) {
+                                distances[startNode][v] = currentDist + 1;
+                                queue.push(v);
+                            }
+                        }
+                    }
+                }
+            }
+            return distances;
+        }
+
+
+        // --- Drawing Functions ---
+        // ... (requestDraw, requestDrawDynamic, drawFullVisualization, drawDynamicElementsOnly - no changes needed here) ...
+         function requestDraw() {
+            if (drawRafId === null) {
+                drawRafId = requestAnimationFrame(drawFullVisualization);
+            }
+        }
+         function requestDrawDynamic() {
+             if (drawRafId === null && drawDynamicRafId === null) {
+                 drawDynamicRafId = requestAnimationFrame(drawDynamicElementsOnly);
+             }
+         }
+
+        function drawFullVisualization() {
+            isDrawing = true;
+            drawRafId = null;
+
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            if (!networkState.isValid) {
+                 isDrawing = false;
+                 return;
+            }
+
+            drawStaticBackground();
+            drawStaticEdges();
+            drawDynamicElements(); // Call the function that uses the correct colors
+
+             isDrawing = false;
+        }
+
+         function drawDynamicElementsOnly() {
+             isDrawing = true;
+             drawDynamicRafId = null;
+
+             ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+             if (!networkState.isValid) {
+                 isDrawing = false;
+                 return;
+             }
+             drawStaticBackground();
+             drawStaticEdges();
+             drawDynamicElements(); // Call the function that uses the correct colors
+
+             isDrawing = false;
+         }
+
+
+        // --- Drawing Functions using Computed Colors ---
+
+        function drawStaticBackground() {
+            const { N, nodes } = networkState;
+            if (N === 0 || !nodes || nodes.length === 0) return;
+
+            const centerX = CANVAS_WIDTH / 2;
+            const centerY = CANVAS_HEIGHT / 2;
+
+            ctx.lineWidth = 1.5;
+            // Use the computed color variable
+            ctx.strokeStyle = EDGE_RING_COLOR;
+            for (let i = 0; i < N; i++) {
+                // ... (arc drawing logic remains the same) ...
+                const startNode = nodes[i];
+                const endNode = nodes[(i + 1) % N];
+                ctx.beginPath();
+                let startAngle = startNode.angle;
+                let endAngle = endNode.angle;
+                 if (endAngle < startAngle && Math.abs(endAngle - startAngle) > Math.PI) {
+                       endAngle += 2 * Math.PI;
+                 }
+                 if(Math.abs(startAngle - endAngle) < 1e-6) {
+                    endAngle += 2 * Math.PI;
+                 }
+                ctx.arc(centerX, centerY, GRAPH_RADIUS, startAngle, endAngle);
+                ctx.stroke();
+            }
+        }
+
+        function drawStaticEdges() {
+            const { N, nodes, adjList, n } = networkState;
+            if (n <= 2 || !adjList || adjList.length === 0) return;
+
+            // Use the computed color variable
+            ctx.strokeStyle = EDGE_SHORTCUT_COLOR;
+            ctx.lineWidth = 0.75;
+            const drawnEdges = new Set();
+
+            for (let i = 0; i < N; i++) {
+                 if (adjList[i]) {
+                    for (const target of adjList[i]) {
+                        const isRingNeighbor = target === (i + 1) % N || target === (i - 1 + N) % N;
+                        if (!isRingNeighbor) {
+                            const edgeKey = `${Math.min(i, target)}-${Math.max(i, target)}`;
+                            if (!drawnEdges.has(edgeKey)) {
+                                ctx.beginPath();
+                                ctx.moveTo(nodes[i].x, nodes[i].y);
+                                ctx.lineTo(nodes[target].x, nodes[target].y);
+                                ctx.stroke();
+                                drawnEdges.add(edgeKey);
+                            }
+                        }
+                    }
+                 }
+            }
+            ctx.lineWidth = 1; // Reset default
+        }
+
+
+        function drawDynamicElements() {
+            const { nodes, highlightedNode, highlightMode, adjList, allDistances, N } = networkState;
+            if (!nodes || nodes.length === 0) return;
+
+            // ... (logic for nodesToHighlight, distancesFromHighlighted, maxDistanceNode remains the same) ...
+            let nodesToHighlight = new Set();
+            let distancesFromHighlighted = null;
+            let maxDistanceNode = -1;
+
+            if (highlightedNode !== -1) {
+                nodesToHighlight.add(highlightedNode);
+                distancesFromHighlighted = allDistances[highlightedNode];
+
+                if (highlightMode === 'neighbors') {
+                     if (adjList[highlightedNode]) {
+                         adjList[highlightedNode].forEach(neighbor => nodesToHighlight.add(neighbor));
+                     }
+                } else if (highlightMode === 'distances') {
+                    let maxDist = -1;
+                    if (distancesFromHighlighted) {
+                        for (let i = 0; i < N; i++) {
+                            if (i !== highlightedNode && distancesFromHighlighted[i] !== Infinity) {
+                                if (distancesFromHighlighted[i] > maxDist) {
+                                    maxDist = distancesFromHighlighted[i];
+                                    maxDistanceNode = i;
+                                }
+                            }
+                        }
+                    }
+                    if (maxDistanceNode !== -1) {
+                        nodesToHighlight.add(maxDistanceNode);
+                    }
+                }
+            }
+
+            // --- Draw Nodes ---
+            ctx.font = '11px var(--font-family)'; // CSS variable still OK for font string
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+
+            for (let i = 0; i < nodes.length; i++) {
+                const node = nodes[i];
+                const isHighlighted = nodesToHighlight.has(i);
+                const isPrimaryHighlight = i === highlightedNode;
+
+                // Node Circle - USE COMPUTED COLORS
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, isPrimaryHighlight ? HIGHLIGHTED_NODE_RADIUS : NODE_RADIUS, 0, 2 * Math.PI);
+                // *** THIS IS THE KEY FIX ***
+                ctx.fillStyle = isHighlighted ? HIGHLIGHT_COLOR : NODE_COLOR;
+                ctx.fill();
+
+                // --- Draw Labels ---
+                let showLabel = false;
+                let labelText = '';
+                 if (highlightedNode !== -1) {
+                    if (highlightMode === 'neighbors') {
+                        if (isHighlighted) {
+                            showLabel = true;
+                            labelText = `n${node.index}`;
+                        }
+                    } else {
+                         showLabel = true;
+                         const dist = distancesFromHighlighted ? distancesFromHighlighted[i] : '?';
+                         labelText = `n${node.index} (${dist === Infinity ? '∞' : dist})`;
+                    }
+                }
+
+                if (showLabel) {
+                     // Use the computed color variable
+                     ctx.fillStyle = LABEL_COLOR;
+                     const labelOffset = HIGHLIGHTED_NODE_RADIUS + 3;
+                     const textX = node.x + labelOffset * Math.cos(node.angle + Math.PI / 12);
+                     const textY = node.y + labelOffset * Math.sin(node.angle + Math.PI / 12);
+                     ctx.fillText(labelText, textX, textY);
+                }
+            }
+        }
+
+        // --- UI Update Functions ---
+        // ... (updateMetricsDisplay, updateStatusMessage, clearVisualizationAndMetrics - no changes needed) ...
+        function updateMetricsDisplay() {
+            document.getElementById('diameter').textContent = networkState.diameter;
+            document.getElementById('avgDiameter').textContent = networkState.avgDiameter;
+        }
+
+        function updateStatusMessage(status = networkState.status) {
+             const msgElement = document.getElementById('statusMessage');
+             msgElement.textContent = status.message;
+             msgElement.className = status.type;
+        }
+
+        function clearVisualizationAndMetrics() {
+            if (ctx) { // Ensure ctx is defined before clearing
+                ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            }
+            document.getElementById('diameter').textContent = '?';
+            document.getElementById('avgDiameter').textContent = '?';
+            networkState.nodes = [];
+            networkState.adjList = [];
+            networkState.allDistances = [];
+            networkState.diameter = '?';
+            networkState.avgDiameter = '?';
+        }
+
+        // --- Start the application ---
+        window.onload = initialize;
+
     </script>
 </body>
 </html>
